@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import axios from '../../api/axios'; // ✅ use your configured axios instance
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -16,7 +16,9 @@ const Register = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');
     setSuccess('');
@@ -35,16 +37,17 @@ const Register = () => {
     }
 
     try {
-      const response = await axios.post('http://localhost:5000/api/auth/register', {
-      name: fullName,
-      email,
-      password,
-      role,
-      bio: formData.bio,
-      goals: formData.goals,
-      skills: formData.skills.split(',').map(skill => skill.trim()),
-    });
-
+      const response = await axios.post('/register', {
+        name: fullName,
+        email,
+        password,
+        role,
+        bio,
+        skills: skills
+          ? skills.split(',').map((skill) => skill.trim())
+          : [],
+        goals,
+      });
 
       if (response.status === 201) {
         setSuccess('User created successfully!');
