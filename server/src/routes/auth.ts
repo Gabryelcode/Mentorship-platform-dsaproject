@@ -21,15 +21,35 @@ interface AuthenticatedRequest extends express.Request {
 // ========== REGISTER ==========
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, bio, skills, goals } = req.body;
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ error: 'User already exists' });
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ error: 'All required fields must be filled.' });
+    }
+
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists.' });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ name, email, password: hashedPassword, role });
+
+    const newUser = new User({
+      name,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      role,
+      bio: bio || '',
+      skills: Array.isArray(skills)
+        ? skills
+        : typeof skills === 'string'
+        ? skills.split(',').map(s => s.trim())
+        : [],
+      goals: goals || '',
+    });
 
     await newUser.save();
+
     res.status(201).json({ message: 'User registered successfully' });
   } catch (err) {
     console.error('❌ Registration error:', err);
@@ -42,7 +62,7 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user || !user.password) return res.status(400).json({ error: 'Invalid email or password' });
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -70,49 +90,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ========== TEST ROUTES ==========
-router.get('/test', (req, res) => {
-  res.send('✅ Auth route is working!');
-});
-
-router.get('/test-db', async (req, res) => {
-  try {
-    const users = await User.find();
-    res.status(200).json(users);
-  } catch (err) {
-    res.status(500).json({ error: 'Database connection failed' });
-  }
-});
-
-// ========== GET ALL MENTORS ==========
-router.get('/mentors', async (req, res) => {
-  try {
-    console.log('📡 GET /api/auth/mentors called');
-    const mentors = await User.find({ role: 'mentor' }).select('name email skills');
-    res.status(200).json(mentors);
-  } catch (err) {
-    console.error('❌ Error fetching mentors:', err);
-    res.status(500).json({ error: 'Failed to fetch mentors' });
-  }
-});
-
-// ========== GET MENTOR BY ID ==========
-router.get('/mentors/:id', async (req, res) => {
-  const { id } = req.params;
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    return res.status(400).json({ error: 'Invalid ID format' });
-  }
-
-  try {
-    const user = await User.findById(id).select('name skills');
-    if (!user) return res.status(404).json({ error: 'Mentor not found' });
-    res.status(200).json(user);
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: (err as Error).message });
-  }
-});
-
-// ========== GET USER PROFILE ==========
+// ========== PROFILE ==========
 router.get('/profile/:id', async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -125,57 +103,158 @@ router.get('/profile/:id', async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    console.error('❌ Error fetching user:', error);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// ========== GET MENTEE SESSIONS ==========
+router.put('/profile/:id', async (req, res) => {
+  const { name, bio, skills, goals } = req.body;
+
+  try {
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      { name, bio, skills, goals },
+      { new: true }
+    );
+
+    if (!updatedUser) return res.status(404).json({ error: 'User not found' });
+    res.json(updatedUser);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// ========== MENTORS ==========
+router.get('/mentors', async (_req, res) => {
+  try {
+    const mentors = await User.find({ role: 'mentor' }).select('name email skills');
+    res.status(200).json(mentors);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch mentors' });
+  }
+});
+
+router.get('/mentors/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ error: 'Invalid ID format' });
+  }
+
+  try {
+    const user = await User.findById(id).select('name skills');
+    if (!user) return res.status(404).json({ error: 'Mentor not found' });
+    res.status(200).json(user);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ========== MENTEE SESSIONS ==========
 router.get('/sessions/mentee', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const sessions = await Session.find({ mentee: req.user?.id }).populate('mentor');
     res.json(sessions);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch mentee sessions' });
   }
 });
 
-// ========== GET SENT REQUESTS ==========
-router.get('/requests/sent', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+// ========== BOOK SESSION ==========
+router.post('/sessions', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const requests = await MentorshipRequest.find({ mentee: req.user?.id }).populate('mentor');
-    res.json(requests);
+    const { mentorId, date } = req.body;
+    if (!mentorId || !date) return res.status(400).json({ error: 'Mentor ID and date are required.' });
+
+    const acceptedRequest = await MentorshipRequest.findOne({
+      mentor: mentorId,
+      mentee: req.user?.id,
+      status: 'Accepted',
+    });
+
+    if (!acceptedRequest) return res.status(403).json({ error: 'You are not allowed to book with this mentor.' });
+
+    const newSession = new Session({
+      mentor: mentorId,
+      mentee: req.user?.id,
+      date: new Date(date),
+    });
+
+    await newSession.save();
+    res.status(201).json({ message: 'Session booked successfully.', session: newSession });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch requests' });
+    res.status(500).json({ error: 'Failed to book session.' });
   }
 });
 
-// PUT /auth/profile/:id
-// server/routes/auth.ts or similar
-
-router.put('/profile/:id', async (req, res) => {
+// ========== MENTOR SESSIONS ==========
+router.get('/sessions/mentor', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const updated = await User.findByIdAndUpdate(
-      req.params.id,
-      {
-        $set: {
-          name: req.body.name,
-          bio: req.body.bio,
-          skills: req.body.skills,
-          goals: req.body.goals,
-        },
-      },
-      { new: true }
-    );
+    if (req.user?.role !== 'mentor') return res.status(403).json({ error: 'Access denied' });
 
-    if (!updated) return res.status(404).json({ error: 'User not found' });
+    const sessions = await Session.find({ mentor: req.user?.id }).populate('mentee');
+    res.json(sessions);
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+  console.log('Mentor ID:', req.user?.id);
 
-    res.json(updated);
-  } catch (err) {
-    console.error('Error updating profile:', err);
-    res.status(500).json({ error: 'Server error' });
+const sessions = await Session.find({ mentor: req.user?.id }).populate('mentee');
+
+console.log('Fetched sessions for mentor:', sessions);
+
+});
+
+router.put('/sessions/:id/status', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  const { status } = req.body;
+  if (!['Accepted', 'Rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value' });
+  }
+
+  try {
+    const session = await Session.findById(req.params.id);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    if (session.mentor.toString() !== req.user?.id) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    session.status = status;
+    await session.save();
+    res.json({ message: `Session ${status.toLowerCase()} successfully`, session });
+  } catch {
+    res.status(500).json({ error: 'Failed to update session status' });
   }
 });
 
+// ========== AVAILABILITY ==========
+router.post('/availability', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { slots } = req.body;
+    if (!Array.isArray(slots)) return res.status(400).json({ error: 'Slots must be an array of strings' });
+
+    const user = await User.findById(req.user?.id);
+    if (!user || user.role !== 'mentor') return res.status(403).json({ error: 'Only mentors can set availability' });
+
+    user.availability = slots;
+    await user.save();
+
+    res.json({ message: 'Availability updated', availability: user.availability });
+  } catch {
+    res.status(500).json({ error: 'Failed to set availability' });
+  }
+});
+
+router.get('/availability', authMiddleware, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = await User.findById(req.user?.id).select('availability');
+    if (!user) return res.status(404).json({ error: 'Mentor not found' });
+
+    res.json(user.availability);
+  } catch {
+    res.status(500).json({ error: 'Failed to get availability' });
+  }
+  console.log('Fetching availability for mentor:', req.user?.id);
+
+});
 
 export default router;
