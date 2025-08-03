@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from '../../api/axios'; // ✅ use your configured axios instance
+import axios from '../api/axios'; // uses pre-configured axios with baseURL
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -37,15 +37,13 @@ const Register = () => {
     }
 
     try {
-      const response = await axios.post('/register', {
+      const response = await axios.post('/auth/register', {
         name: fullName,
         email,
         password,
         role,
         bio,
-        skills: skills
-          ? skills.split(',').map((skill) => skill.trim())
-          : [],
+        skills: skills ? skills.split(',').map((skill) => skill.trim()) : [],
         goals,
       });
 
@@ -128,7 +126,6 @@ const Register = () => {
             <option value="mentee">Mentee</option>
           </select>
 
-          {/* Optional Profile Fields */}
           <textarea
             name="bio"
             placeholder="Short Bio"

@@ -11,8 +11,12 @@ dotenv.config();
 
 const app = express();
 
-// ✅ Middleware
-app.use(cors());
+// ✅ CORS config
+app.use(cors({
+  origin: ['https://mentorshipplatformdsa.netlify.app'], // your frontend domain
+  credentials: true,
+}));
+
 app.use(express.json());
 
 // ✅ API Routes
@@ -32,8 +36,8 @@ mongoose
   .connect(mongoURI)
   .then(() => {
     console.log('✅ Connected to MongoDB');
-    app.listen(5000, () => {
-      console.log('✅ Server listening on http://localhost:5000');
+    app.listen(process.env.PORT || 5000, () => {
+      console.log(`✅ Server running on http://localhost:${process.env.PORT || 5000}`);
     });
   })
   .catch((err) => {
